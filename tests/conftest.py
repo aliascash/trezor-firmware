@@ -24,6 +24,10 @@ from trezorlib.device import apply_settings, wipe as wipe_device
 from trezorlib.messages.PassphraseSourceType import HOST as PASSPHRASE_ON_HOST
 from trezorlib.transport import enumerate_devices, get_transport
 
+from . import ui_tests
+from .device_handler import BackgroundDeviceHandler
+from .ui_tests import report
+
 
 def get_device():
     path = os.environ.get("TREZOR_PATH")
@@ -77,16 +81,36 @@ def client(request):
     if request.node.get_closest_marker("skip_t1") and client.features.model == "1":
         pytest.skip("Test excluded on Trezor 1")
 
+    if (
+        request.node.get_closest_marker("sd_card")
+        and not client.features.sd_card_present
+    ):
+        raise RuntimeError(
+            "This test requires SD card.\n"
+            "To skip all such tests, run:\n"
+            "  pytest -m 'not sd_card' <test path>"
+        )
+
+    test_ui = request.config.getoption("ui")
+    if test_ui not in ("", "record", "test"):
+        raise ValueError("Invalid ui option.")
+    run_ui_tests = not request.node.get_closest_marker("skip_ui") and test_ui
+
+    client.open()
+    if run_ui_tests:
+        # we need to reseed before the wipe
+        client.debug.reseed(0)
+
     wipe_device(client)
 
-    # fmt: off
     setup_params = dict(
         uninitialized=False,
         mnemonic=" ".join(["all"] * 12),
         pin=None,
         passphrase=False,
+        needs_backup=False,
+        no_backup=False,
     )
-    # fmt: on
 
     marker = request.node.get_closest_marker("setup_client")
     if marker:
@@ -96,21 +120,55 @@ def client(request):
         if setup_params["pin"] is True:
             setup_params["pin"] = "1234"
 
-        debuglink.load_device_by_mnemonic(
+        debuglink.load_device(
             client,
             mnemonic=setup_params["mnemonic"],
             pin=setup_params["pin"],
             passphrase_protection=setup_params["passphrase"],
             label="test",
-            language="english",
+            language="en-US",
+            needs_backup=setup_params["needs_backup"],
+            no_backup=setup_params["no_backup"],
         )
-        client.clear_session()
         if setup_params["passphrase"] and client.features.model != "1":
             apply_settings(client, passphrase_source=PASSPHRASE_ON_HOST)
 
-    client.open()
-    yield client
+        if setup_params["pin"]:
+            # ClearSession locks the device. We only do that if the PIN is set.
+            client.clear_session()
+
+    if run_ui_tests:
+        with ui_tests.screen_recording(client, request):
+            yield client
+    else:
+        yield client
+
     client.close()
+
+
+def pytest_sessionstart(session):
+    if session.config.getoption("ui") == "test":
+        report.clear_dir()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if session.config.getoption("ui") == "test":
+        report.index()
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    terminalreporter.writer.line(
+        "\nUI tests summary: %s" % (report.REPORTS_PATH / "index.html")
+    )
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--ui",
+        action="store",
+        default="",
+        help="Enable UI intergration tests: 'record' or 'test'",
+    )
 
 
 def pytest_configure(config):
@@ -124,6 +182,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         'setup_client(mnemonic="all all all...", pin=None, passphrase=False, uninitialized=False): configure the client instance',
+    )
+    config.addinivalue_line(
+        "markers", "skip_ui: skip UI integration checks for this test"
     )
     with open(os.path.join(os.path.dirname(__file__), "REGISTERED_MARKERS")) as f:
         for line in f:
@@ -141,8 +202,30 @@ def pytest_runtest_setup(item):
     both T1 and TT.
     """
     if item.get_closest_marker("skip_t1") and item.get_closest_marker("skip_t2"):
-        pytest.fail("Don't skip tests for both trezors!")
+        raise RuntimeError("Don't skip tests for both trezors!")
 
     skip_altcoins = int(os.environ.get("TREZOR_PYTEST_SKIP_ALTCOINS", 0))
     if item.get_closest_marker("altcoin") and skip_altcoins:
         pytest.skip("Skipping altcoin test")
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    # Make test results available in fixtures.
+    # See https://docs.pytest.org/en/latest/example/simple.html#making-test-result-information-available-in-fixtures
+    # The device_handler fixture uses this as 'request.node.rep_call.passed' attribute,
+    # in order to raise error only if the test passed.
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
+@pytest.fixture
+def device_handler(client, request):
+    device_handler = BackgroundDeviceHandler(client)
+    yield device_handler
+
+    # make sure all background tasks are done
+    finalized_ok = device_handler.check_finalize()
+    if request.node.rep_call.passed and not finalized_ok:
+        raise RuntimeError("Test did not check result of background task")

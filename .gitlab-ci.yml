@@ -26,14 +26,16 @@ stages:
   - prebuild
   - build
   - test
+  - posttest
   - deploy
 
 before_script:
-  - pipenv sync
+  - command -v pipenv >/dev/null && pipenv sync
 
 include:
   - ci/environment.yml
   - ci/prebuild.yml
   - ci/build.yml
   - ci/test.yml
+  - ci/posttest.yml
   - ci/deploy.yml

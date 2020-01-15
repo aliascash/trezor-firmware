@@ -1,15 +1,15 @@
 from micropython import const
 
-from trezor import loop, res, ui
+from trezor import loop, res, ui, utils
 from trezor.ui.button import Button, ButtonCancel, ButtonConfirm, ButtonDefault
 from trezor.ui.confirm import CANCELLED, CONFIRMED
 from trezor.ui.swipe import SWIPE_DOWN, SWIPE_UP, SWIPE_VERTICAL, Swipe
 
 if __debug__:
-    from apps.debug import swipe_signal
+    from apps.debug import swipe_signal, notify_layout_change
 
 if False:
-    from typing import Tuple, Sequence
+    from typing import List, Tuple
 
 
 def render_scrollbar(pages: int, page: int) -> None:
@@ -32,11 +32,14 @@ def render_scrollbar(pages: int, page: int) -> None:
 
 
 def render_swipe_icon() -> None:
-    PULSE_PERIOD = const(1200000)
+    if utils.DISABLE_ANIMATION:
+        c = ui.GREY
+    else:
+        PULSE_PERIOD = const(1200000)
+        t = ui.pulse(PULSE_PERIOD)
+        c = ui.blend(ui.GREY, ui.DARK_GREY, t)
 
     icon = res.load(ui.ICON_SWIPE)
-    t = ui.pulse(PULSE_PERIOD)
-    c = ui.blend(ui.GREY, ui.DARK_GREY, t)
     ui.display.icon(70, 205, icon, c, ui.BG)
 
 
@@ -46,7 +49,7 @@ def render_swipe_text() -> None:
 
 class Paginated(ui.Layout):
     def __init__(
-        self, pages: Sequence[ui.Component], page: int = 0, one_by_one: bool = False
+        self, pages: List[ui.Component], page: int = 0, one_by_one: bool = False
     ):
         self.pages = pages
         self.page = page
@@ -89,6 +92,9 @@ class Paginated(ui.Layout):
         self.pages[self.page].dispatch(ui.REPAINT, 0, 0)
         self.repaint = True
 
+        if __debug__:
+            notify_layout_change(self)
+
         self.on_change()
 
     def create_tasks(self) -> Tuple[loop.Task, ...]:
@@ -97,6 +103,11 @@ class Paginated(ui.Layout):
     def on_change(self) -> None:
         if self.one_by_one:
             raise ui.Result(self.page)
+
+    if __debug__:
+
+        def read_content(self) -> List[str]:
+            return self.pages[self.page].read_content()
 
 
 class PageWithButtons(ui.Component):
@@ -154,10 +165,15 @@ class PageWithButtons(ui.Component):
         else:
             self.paginated.on_down()
 
+    if __debug__:
+
+        def read_content(self) -> List[str]:
+            return self.content.read_content()
+
 
 class PaginatedWithButtons(ui.Layout):
     def __init__(
-        self, pages: Sequence[ui.Component], page: int = 0, one_by_one: bool = False
+        self, pages: List[ui.Component], page: int = 0, one_by_one: bool = False
     ) -> None:
         self.pages = [
             PageWithButtons(p, self, i, len(pages)) for i, p in enumerate(pages)
@@ -191,3 +207,8 @@ class PaginatedWithButtons(ui.Layout):
     def on_change(self) -> None:
         if self.one_by_one:
             raise ui.Result(self.page)
+
+    if __debug__:
+
+        def read_content(self) -> List[str]:
+            return self.pages[self.page].read_content()

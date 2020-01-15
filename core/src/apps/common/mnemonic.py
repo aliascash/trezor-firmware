@@ -1,8 +1,7 @@
-from trezor import ui, workflow
+import storage.device
+from trezor import ui, utils, workflow
 from trezor.crypto import bip39, slip39
 from trezor.messages import BackupType
-
-from apps.common import storage
 
 if False:
     from typing import Optional, Tuple
@@ -35,7 +34,7 @@ def get_seed(passphrase: str = "", progress_bar: bool = True) -> bytes:
         raise ValueError("Mnemonic not set")
 
     render_func = None
-    if progress_bar:
+    if progress_bar and not utils.DISABLE_ANIMATION:
         _start_progress()
         render_func = _render_progress
 
@@ -49,7 +48,7 @@ def get_seed(passphrase: str = "", progress_bar: bool = True) -> bytes:
             # Identifier or exponent expected but not found
             raise RuntimeError
         seed = slip39.decrypt(
-            identifier, iteration_exponent, mnemonic_secret, passphrase.encode()
+            mnemonic_secret, passphrase.encode(), iteration_exponent, identifier
         )
 
     return seed
@@ -59,15 +58,15 @@ def _start_progress() -> None:
     # Because we are drawing to the screen manually, without a layout, we
     # should make sure that no other layout is running.  At this point, only
     # the homescreen should be on, so shut it down.
-    workflow.close_default()
+    workflow.kill_default()
     ui.backlight_fade(ui.BACKLIGHT_DIM)
     ui.display.clear()
     ui.header("Please wait")
-    ui.display.refresh()
+    ui.refresh()
     ui.backlight_fade(ui.BACKLIGHT_NORMAL)
 
 
 def _render_progress(progress: int, total: int) -> None:
     p = 1000 * progress // total
     ui.display.loader(p, False, 18, ui.WHITE, ui.BG)
-    ui.display.refresh()
+    ui.refresh()

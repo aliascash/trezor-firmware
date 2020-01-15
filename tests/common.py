@@ -24,6 +24,7 @@ MNEMONIC_SLIP39_BASIC_20_3of6 = [
     "extra extend academic acne away best indicate impact square oasis prospect painting voting guest either argue username racism enemy eclipse",
     "extra extend academic arcade born dive legal hush gross briefing talent drug much home firefly toxic analysis idea umbrella slice",
 ]
+MNEMONIC_SLIP39_BASIC_20_3of6_SECRET = "491b795b80fc21ccdf466c0fbc98c8fc"
 # Shamir shares (128 bits, 2 groups from 1 of 1, 1 of 1, 3 of 5, 2 of 6)
 MNEMONIC_SLIP39_ADVANCED_20 = [
     "eraser senior beard romp adorn nuclear spill corner cradle style ancient family general leader ambition exchange unusual garlic promise voice",
@@ -36,6 +37,8 @@ MNEMONIC_SLIP39_ADVANCED_33 = [
     "wildlife deal beard romp alcohol space mild usual clothes union nuclear testify course research heat listen task location thank hospital slice smell failure fawn helpful priest ambition average recover lecture process dough stadium",
     "wildlife deal acrobat romp anxiety axis starting require metric flexible geology game drove editor edge screw helpful have huge holy making pitch unknown carve holiday numb glasses survive already tenant adapt goat fangs",
 ]
+# External entropy mocked as received from trezorlib.
+EXTERNAL_ENTROPY = b"zlutoucky kun upel divoke ody" * 2
 # fmt: on
 
 
@@ -149,7 +152,7 @@ def read_and_confirm_mnemonic(debug, words):
     while True:
         mnemonic.extend(debug.read_reset_word().split())
         if len(mnemonic) < words:
-            debug.swipe_down()
+            debug.swipe_up()
         else:
             # last page is confirmation
             debug.press_yes()

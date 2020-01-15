@@ -6,7 +6,7 @@ CORE_DIR="$(SHELL_SESSION_FILE='' && cd "$( dirname "${BASH_SOURCE[0]}" )/.." >/
 MICROPYTHON="${MICROPYTHON:-$CORE_DIR/build/unix/micropython}"
 TREZOR_SRC="${CORE_DIR}/src"
 
-DISABLE_FADE=1
+DISABLE_ANIMATION=1
 PYOPT="${PYOPT:-0}"
 upy_pid=""
 
@@ -22,7 +22,7 @@ if [[ $RUN_TEST_EMU > 0 ]]; then
   echo "Starting emulator: $MICROPYTHON $ARGS ${MAIN}"
 
   TREZOR_TEST=1 \
-  TREZOR_DISABLE_FADE=$DISABLE_FADE \
+  TREZOR_DISABLE_ANIMATION=$DISABLE_ANIMATION \
     $MICROPYTHON $ARGS "${MAIN}" &> "${TREZOR_LOGFILE}" &
   upy_pid=$!
   cd -
@@ -31,14 +31,15 @@ fi
 
 # run tests
 error=0
+TREZOR_FIDO2_UDP_PORT=21326
 # missuse loaddevice test to initialize the device
 if ! pytest ../../tests/device_tests -k "test_msg_loaddevice" "$@"; then
   error=1
 fi
-if ! ../../tests/fido_tests/u2f-tests-hid/HIDTest 21328 "$@"; then
+if ! ../../tests/fido_tests/u2f-tests-hid/HIDTest "${TREZOR_FIDO2_UDP_PORT}" "$@"; then
   error=1
 fi
-if ! ../../tests/fido_tests/u2f-tests-hid/U2FTest 21328 "$@"; then
+if ! ../../tests/fido_tests/u2f-tests-hid/U2FTest "${TREZOR_FIDO2_UDP_PORT}" "$@"; then
   error=1
 fi
 kill $upy_pid

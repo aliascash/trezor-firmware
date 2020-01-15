@@ -1,6 +1,6 @@
 import gc
 import sys
-from trezorutils import (  # noqa: F401
+from trezorutils import (  # type: ignore[attr-defined] # noqa: F401
     BITCOIN_ONLY,
     EMULATOR,
     GITREV,
@@ -14,22 +14,23 @@ from trezorutils import (  # noqa: F401
     set_mode_unprivileged,
 )
 
+DISABLE_ANIMATION = 0
+
 if __debug__:
     if EMULATOR:
         import uos
 
         TEST = int(uos.getenv("TREZOR_TEST") or "0")
-        DISABLE_FADE = int(uos.getenv("TREZOR_DISABLE_FADE") or "0")
+        DISABLE_ANIMATION = int(uos.getenv("TREZOR_DISABLE_ANIMATION") or "0")
         SAVE_SCREEN = int(uos.getenv("TREZOR_SAVE_SCREEN") or "0")
         LOG_MEMORY = int(uos.getenv("TREZOR_LOG_MEMORY") or "0")
     else:
         TEST = 0
-        DISABLE_FADE = 0
         SAVE_SCREEN = 0
         LOG_MEMORY = 0
 
 if False:
-    from typing import Iterable, Iterator, Protocol, List, TypeVar
+    from typing import Any, Iterable, Iterator, Protocol, TypeVar, Sequence
 
 
 def unimport_begin() -> Iterable[str]:
@@ -66,10 +67,10 @@ def ensure(cond: bool, msg: str = None) -> None:
 
 
 if False:
-    Chunked = TypeVar("Chunked")
+    Chunkable = TypeVar("Chunkable", str, Sequence[Any])
 
 
-def chunks(items: List[Chunked], size: int) -> Iterator[List[Chunked]]:
+def chunks(items: Chunkable, size: int) -> Iterator[Chunkable]:
     for i in range(0, len(items), size):
         yield items[i : i + size]
 
