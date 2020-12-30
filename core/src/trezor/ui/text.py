@@ -32,9 +32,9 @@ def render_text(
 ) -> None:
     # initial rendering state
     INITIAL_OFFSET_X = offset_x
-    offset_y_max = offset_y * max_lines
+    offset_y_max = TEXT_HEADER_HEIGHT + (TEXT_LINE_HEIGHT * max_lines)
 
-    FONTS = (ui.NORMAL, ui.BOLD, ui.MONO, ui.MONO_BOLD)
+    FONTS = (ui.NORMAL, ui.BOLD, ui.MONO)
 
     # sizes of common glyphs
     SPACE = ui.display.text_width(" ", font)
@@ -47,7 +47,7 @@ def render_text(
         if isinstance(word, int):
             if word is BR or word is BR_HALF:
                 # line break or half-line break
-                if offset_y >= offset_y_max:
+                if offset_y > offset_y_max:
                     ui.display.text(offset_x, offset_y, "...", ui.BOLD, ui.GREY, bg)
                     return
                 offset_x = INITIAL_OFFSET_X
@@ -129,13 +129,13 @@ class Text(ui.Component):
         max_lines: int = TEXT_MAX_LINES,
         new_lines: bool = True,
     ):
+        super().__init__()
         self.header_text = header_text
         self.header_icon = header_icon
         self.icon_color = icon_color
         self.max_lines = max_lines
         self.new_lines = new_lines
-        self.content = []  # type: List[TextContent]
-        self.repaint = True
+        self.content: List[TextContent] = []
 
     def normal(self, *content: TextContent) -> None:
         self.content.append(ui.NORMAL)
@@ -147,10 +147,6 @@ class Text(ui.Component):
 
     def mono(self, *content: TextContent) -> None:
         self.content.append(ui.MONO)
-        self.content.extend(content)
-
-    def mono_bold(self, *content: TextContent) -> None:
-        self.content.append(ui.MONO_BOLD)
         self.content.extend(content)
 
     def br(self) -> None:
@@ -191,28 +187,25 @@ class Label(ui.Component):
         align: int = LABEL_LEFT,
         style: int = ui.NORMAL,
     ) -> None:
+        super().__init__()
         self.area = area
         self.content = content
         self.align = align
         self.style = style
-        self.repaint = True
 
     def on_render(self) -> None:
         if self.repaint:
             align = self.align
             ax, ay, aw, ah = self.area
+            ui.display.bar(ax, ay, aw, ah, ui.BG)
             tx = ax + aw // 2
             ty = ay + ah // 2 + 8
             if align is LABEL_LEFT:
-                ui.display.text(tx, ty, self.content, self.style, ui.FG, ui.BG, aw)
+                ui.display.text(tx, ty, self.content, self.style, ui.FG, ui.BG)
             elif align is LABEL_CENTER:
-                ui.display.text_center(
-                    tx, ty, self.content, self.style, ui.FG, ui.BG, aw
-                )
+                ui.display.text_center(tx, ty, self.content, self.style, ui.FG, ui.BG)
             elif align is LABEL_RIGHT:
-                ui.display.text_right(
-                    tx, ty, self.content, self.style, ui.FG, ui.BG, aw
-                )
+                ui.display.text_right(tx, ty, self.content, self.style, ui.FG, ui.BG)
             self.repaint = False
 
     if __debug__:

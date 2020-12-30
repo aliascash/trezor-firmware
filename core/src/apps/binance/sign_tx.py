@@ -1,3 +1,4 @@
+from trezor import wire
 from trezor.crypto.curve import secp256k1
 from trezor.crypto.hashlib import sha256
 from trezor.messages import MessageType
@@ -7,18 +8,19 @@ from trezor.messages.BinanceSignedTx import BinanceSignedTx
 from trezor.messages.BinanceTransferMsg import BinanceTransferMsg
 from trezor.messages.BinanceTxRequest import BinanceTxRequest
 
-from apps.binance import CURVE, helpers, layout
 from apps.common import paths
+from apps.common.keychain import Keychain, auto_keychain
+
+from . import helpers, layout
 
 
-async def sign_tx(ctx, envelope, keychain):
+@auto_keychain(__name__)
+async def sign_tx(ctx, envelope, keychain: Keychain):
     # create transaction message -> sign it -> create signature/pubkey message -> serialize all
     if envelope.msg_count > 1:
-        raise ValueError("Multiple messages not supported")
-    await paths.validate_path(
-        ctx, helpers.validate_full_path, keychain, envelope.address_n, CURVE
-    )
+        raise wire.DataError("Multiple messages not supported.")
 
+    await paths.validate_path(ctx, keychain, envelope.address_n)
     node = keychain.derive(envelope.address_n)
 
     tx_req = BinanceTxRequest()
@@ -29,6 +31,9 @@ async def sign_tx(ctx, envelope, keychain):
         MessageType.BinanceOrderMsg,
         MessageType.BinanceTransferMsg,
     )
+
+    if envelope.source is None or envelope.source < 0:
+        raise wire.DataError("Source missing or invalid.")
 
     msg_json = helpers.produce_json_for_signing(envelope, msg)
 

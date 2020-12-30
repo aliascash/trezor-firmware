@@ -47,7 +47,8 @@ async def show_qr(
 ) -> bool:
     QR_X = const(120)
     QR_Y = const(115)
-    QR_COEF = const(4)
+    QR_SIZE_THRESHOLD = const(63)
+    QR_COEF = const(4) if len(address) < QR_SIZE_THRESHOLD else const(3)
     qr = Qr(address, QR_X, QR_Y, QR_COEF)
     text = Text(desc, ui.ICON_RECEIVE, ui.GREEN)
     content = Container(qr, text)
@@ -69,7 +70,7 @@ async def show_pubkey(ctx: wire.Context, pubkey: bytes) -> None:
 
 
 async def show_xpub(ctx: wire.Context, xpub: str, desc: str, cancel: str) -> bool:
-    pages = []  # type: List[ui.Component]
+    pages: List[ui.Component] = []
     for lines in chunks(list(chunks(xpub, 16)), 5):
         text = Text(desc, ui.ICON_RECEIVE, ui.GREEN)
         text.mono(*lines)

@@ -40,6 +40,9 @@
 #include "display.h"
 #include "flash.h"
 #include "mpu.h"
+#ifdef RDI
+#include "rdi.h"
+#endif
 #include "rng.h"
 #include "sdcard.h"
 #include "supervise.h"
@@ -48,6 +51,9 @@
 int main(void) {
   // initialize pseudo-random number generator
   drbg_init();
+#ifdef RDI
+  rdi_start();
+#endif
 
   // reinitialize HAL for Trezor One
 #if TREZOR_MODEL == 1
@@ -57,7 +63,9 @@ int main(void) {
   collect_hw_entropy();
 
 #if TREZOR_MODEL == T
+#if PRODUCTION
   check_and_replace_bootloader();
+#endif
   // Enable MPU
   mpu_config_firmware();
 #endif
@@ -75,6 +83,11 @@ int main(void) {
   touch_init();
   touch_power_on();
 
+  // jump to unprivileged mode
+  // http://infocenter.arm.com/help/topic/com.arm.doc.dui0552a/CHDBIBGJ.html
+  __asm__ volatile("msr control, %0" ::"r"(0x1));
+  __asm__ volatile("isb");
+
   display_clear();
 #endif
 
@@ -83,6 +96,11 @@ int main(void) {
   // to recover from limit hit.
   mp_stack_set_top(&_estack);
   mp_stack_set_limit((char *)&_estack - (char *)&_heap_end - 1024);
+
+#if MICROPY_ENABLE_PYSTACK
+  static mp_obj_t pystack[1024];
+  mp_pystack_init(pystack, &pystack[MP_ARRAY_SIZE(pystack)]);
+#endif
 
   // GC init
   printf("CORE: Starting GC\n");

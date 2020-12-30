@@ -1,4 +1,5 @@
 import hashlib
+import json
 import re
 import shutil
 from contextlib import contextmanager
@@ -6,9 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from . import report
+from .reporting import testreport
 
 UI_TESTS_DIR = Path(__file__).parent.resolve()
+HASH_FILE = UI_TESTS_DIR / "fixtures.json"
+SUGGESTION_FILE = UI_TESTS_DIR / "fixtures.suggestion.json"
+FILE_HASHES = {}
+ACTUAL_HASHES = {}
+PROCESSED = set()
 
 
 def get_test_name(node_id):
@@ -23,22 +29,11 @@ def get_test_name(node_id):
     return new_name[:100]
 
 
-def _check_fixture_directory(fixture_dir, screen_path):
-    # create the fixture dir if it does not exist
-    if not fixture_dir.exists():
-        fixture_dir.mkdir()
-
-    # delete old files
-    shutil.rmtree(screen_path, ignore_errors=True)
-    screen_path.mkdir()
-
-
-def _process_recorded(screen_path):
-    # create hash
-    digest = _hash_files(screen_path)
-
-    (screen_path.parent / "hash.txt").write_text(digest)
+def _process_recorded(screen_path, test_name):
+    # calculate hash
+    FILE_HASHES[test_name] = _hash_files(screen_path)
     _rename_records(screen_path)
+    PROCESSED.add(test_name)
 
 
 def _rename_records(screen_path):
@@ -57,19 +52,19 @@ def _hash_files(path):
 
 
 def _process_tested(fixture_test_path, test_name):
-    hash_file = fixture_test_path / "hash.txt"
+    expected_hash = FILE_HASHES.get(test_name)
+    if expected_hash is None:
+        raise ValueError("Hash for '%s' not found in fixtures.json" % test_name)
+    PROCESSED.add(test_name)
 
-    if not hash_file.exists():
-        raise ValueError("File hash.txt not found.")
-
-    expected_hash = hash_file.read_text()
     actual_path = fixture_test_path / "actual"
     actual_hash = _hash_files(actual_path)
+    ACTUAL_HASHES[test_name] = actual_hash
 
     _rename_records(actual_path)
 
     if actual_hash != expected_hash:
-        file_path = report.failed(
+        file_path = testreport.failed(
             fixture_test_path, test_name, actual_hash, expected_hash
         )
 
@@ -79,24 +74,22 @@ def _process_tested(fixture_test_path, test_name):
             )
         )
     else:
-        report.passed(fixture_test_path, test_name, actual_hash)
+        testreport.passed(fixture_test_path, test_name, actual_hash)
 
 
 @contextmanager
 def screen_recording(client, request):
     test_ui = request.config.getoption("ui")
     test_name = get_test_name(request.node.nodeid)
-    fixture_test_path = UI_TESTS_DIR / "fixtures" / test_name
+    screens_test_path = UI_TESTS_DIR / "screens" / test_name
 
     if test_ui == "record":
-        screen_path = fixture_test_path / "recorded"
-    elif test_ui == "test":
-        screen_path = fixture_test_path / "actual"
+        screen_path = screens_test_path / "recorded"
     else:
-        raise ValueError("Invalid 'ui' option.")
+        screen_path = screens_test_path / "actual"
 
-    if not fixture_test_path.exists():
-        fixture_test_path.mkdir()
+    if not screens_test_path.exists():
+        screens_test_path.mkdir()
     # remove previous files
     shutil.rmtree(screen_path, ignore_errors=True)
     screen_path.mkdir()
@@ -104,11 +97,37 @@ def screen_recording(client, request):
     try:
         client.debug.start_recording(str(screen_path))
         yield
+        if test_ui == "record":
+            _process_recorded(screen_path, test_name)
+        else:
+            _process_tested(screens_test_path, test_name)
     finally:
         client.debug.stop_recording()
-        if test_ui == "record":
-            _process_recorded(screen_path)
-        elif test_ui == "test":
-            _process_tested(fixture_test_path, test_name)
-        else:
-            raise ValueError("Invalid 'ui' option.")
+
+
+def list_missing():
+    return set(FILE_HASHES.keys()) - PROCESSED
+
+
+def read_fixtures():
+    if not HASH_FILE.exists():
+        raise ValueError("File fixtures.json not found.")
+    global FILE_HASHES
+    FILE_HASHES = json.loads(HASH_FILE.read_text())
+
+
+def write_fixtures(remove_missing: bool):
+    HASH_FILE.write_text(_get_fixtures_content(FILE_HASHES, remove_missing))
+
+
+def write_fixtures_suggestion(remove_missing: bool):
+    SUGGESTION_FILE.write_text(_get_fixtures_content(ACTUAL_HASHES, remove_missing))
+
+
+def _get_fixtures_content(fixtures: dict, remove_missing: bool):
+    if remove_missing:
+        fixtures = {i: fixtures[i] for i in PROCESSED}
+    else:
+        fixtures = fixtures
+
+    return json.dumps(fixtures, indent="", sort_keys=True) + "\n"

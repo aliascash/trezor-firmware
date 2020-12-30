@@ -186,18 +186,6 @@ def check_eth(coins):
         chain_name_str = "colliding chain name " + crayon(None, key, bold=True) + ":"
         print_log(logging.ERROR, chain_name_str, bucket_str)
         check_passed = False
-    for coin in coins:
-        icon_file = coin["shortcut"].lower() + ".png"
-        try:
-            icon = Image.open(os.path.join(coin_info.DEFS_DIR, "ethereum", icon_file))
-        except Exception:
-            print(coin["key"], ": failed to open icon file", icon_file)
-            check_passed = False
-            continue
-
-        if icon.size != (128, 128) or icon.mode != "RGBA":
-            print(coin["key"], ": bad icon format (must be RGBA 128x128)")
-            check_passed = False
     return check_passed
 
 
@@ -331,7 +319,13 @@ def check_dups(buckets, print_at_level=logging.WARNING):
             continue
 
         supported = [coin for coin in bucket if not coin["unsupported"]]
-        nontokens = [coin for coin in bucket if not coin_info.is_token(coin)]
+        nontokens = [
+            coin
+            for coin in bucket
+            if not coin["unsupported"]
+            and coin.get("duplicate")
+            and not coin_info.is_token(coin)
+        ]  # we do not count override-marked coins as duplicates here
         cleared = not any(coin.get("duplicate") for coin in bucket)
 
         # string generation
@@ -347,7 +341,7 @@ def check_dups(buckets, print_at_level=logging.WARNING):
                 # some previous step has explicitly marked them as non-duplicate
                 level = logging.INFO
             else:
-                # at most 1 non-token - we tenatively allow token collisions
+                # at most 1 non-token - we tentatively allow token collisions
                 # when explicitly marked as supported
                 level = logging.WARNING
         else:
@@ -481,7 +475,7 @@ FIDO_KNOWN_KEYS = frozenset(
         "key",
         "u2f",
         "webauthn",
-        "label",
+        "name",
         "use_sign_count",
         "use_self_attestation",
         "no_icon",
@@ -493,11 +487,11 @@ FIDO_KNOWN_KEYS = frozenset(
 def check_fido(apps):
     check_passed = True
 
-    uf2_hashes = find_collisions((a for a in apps if "u2f" in a), "u2f")
-    for key, bucket in uf2_hashes.items():
-        bucket_str = ", ".join(app["key"] for app in bucket)
-        u2f_hash_str = "colliding U2F hash " + crayon(None, key, bold=True) + ":"
-        print_log(logging.ERROR, u2f_hash_str, bucket_str)
+    u2fs = find_collisions((u for a in apps if "u2f" in a for u in a["u2f"]), "app_id")
+    for key, bucket in u2fs.items():
+        bucket_str = ", ".join(u2f["label"] for u2f in bucket)
+        app_id_str = "colliding U2F app ID " + crayon(None, key, bold=True) + ":"
+        print_log(logging.ERROR, app_id_str, bucket_str)
         check_passed = False
 
     webauthn_domains = find_collisions((a for a in apps if "webauthn" in a), "webauthn")
@@ -507,10 +501,41 @@ def check_fido(apps):
         print_log(logging.ERROR, webauthn_str, bucket_str)
         check_passed = False
 
+    domain_hashes = {}
     for app in apps:
-        if "label" not in app:
-            print_log(logging.ERROR, app["key"], ": missing label")
+        if "webauthn" in app:
+            for domain in app["webauthn"]:
+                domain_hashes[sha256(domain.encode()).digest()] = domain
+    for app in apps:
+        if "u2f" in app:
+            for u2f in app["u2f"]:
+                domain = domain_hashes.get(bytes.fromhex(u2f["app_id"]))
+                if domain:
+                    print_log(
+                        logging.ERROR,
+                        "colliding WebAuthn domain "
+                        + crayon(None, domain, bold=True)
+                        + " and U2F app_id "
+                        + crayon(None, u2f["app_id"], bold=True)
+                        + " for "
+                        + u2f["label"],
+                    )
+                    check_passed = False
+
+    for app in apps:
+        if "name" not in app:
+            print_log(logging.ERROR, app["key"], ": missing name")
             check_passed = False
+
+        if "u2f" in app:
+            for u2f in app["u2f"]:
+                if "app_id" not in u2f:
+                    print_log(logging.ERROR, app["key"], ": missing app_id")
+                    check_passed = False
+
+                if "label" not in u2f:
+                    print_log(logging.ERROR, app["key"], ": missing label")
+                    check_passed = False
 
         if not app.get("u2f") and not app.get("webauthn"):
             print_log(logging.ERROR, app["key"], ": no U2F nor WebAuthn addresses")

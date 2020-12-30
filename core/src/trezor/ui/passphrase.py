@@ -1,7 +1,6 @@
 from micropython import const
 
-from trezor import io, loop, res, ui
-from trezor.messages import PassphraseSourceType
+from trezor import io, loop, res, ui, workflow
 from trezor.ui import display
 from trezor.ui.button import Button, ButtonClear, ButtonConfirm
 from trezor.ui.swipe import SWIPE_HORIZONTAL, SWIPE_LEFT, Swipe
@@ -116,8 +115,8 @@ class Input(Button):
 
 class Prompt(ui.Component):
     def __init__(self, text: str) -> None:
+        super().__init__()
         self.text = text
-        self.repaint = True
 
     def on_render(self) -> None:
         if self.repaint:
@@ -131,6 +130,7 @@ CANCELLED = object()
 
 class PassphraseKeyboard(ui.Layout):
     def __init__(self, prompt: str, max_length: int, page: int = 1) -> None:
+        super().__init__()
         self.prompt = Prompt(prompt)
         self.max_length = max_length
         self.page = page
@@ -145,7 +145,7 @@ class PassphraseKeyboard(ui.Layout):
         self.done.on_click = self.on_confirm  # type: ignore
 
         self.keys = key_buttons(KEYBOARD_KEYS[self.page], self)
-        self.pending_button = None  # type: Optional[KeyButton]
+        self.pending_button: Optional[KeyButton] = None
         self.pending_index = 0
 
     def dispatch(self, event: int, x: int, y: int) -> None:
@@ -209,7 +209,7 @@ class PassphraseKeyboard(ui.Layout):
 
     async def handle_input(self) -> None:
         touch = loop.wait(io.TOUCH)
-        timeout = loop.sleep(1000 * 1000 * 1)
+        timeout = loop.sleep(1000)
         race_touch = loop.race(touch)
         race_timeout = loop.race(touch, timeout)
 
@@ -222,6 +222,7 @@ class PassphraseKeyboard(ui.Layout):
 
             if touch in race.finished:
                 event, x, y = result
+                workflow.idle_timer.touch()
                 self.dispatch(event, x, y)
             else:
                 self.on_timeout()
@@ -245,26 +246,15 @@ class PassphraseKeyboard(ui.Layout):
         raise ui.Result(self.input.text)
 
     def create_tasks(self) -> Tuple[loop.Task, ...]:
-        return self.handle_input(), self.handle_rendering(), self.handle_paging()
+        tasks: Tuple[loop.Task, ...] = (
+            self.handle_input(),
+            self.handle_rendering(),
+            self.handle_paging(),
+        )
 
+        if __debug__:
+            from apps.debug import input_signal
 
-class PassphraseSource(ui.Layout):
-    def __init__(self, content: ui.Component) -> None:
-        self.content = content
-
-        self.device = Button(ui.grid(8, n_y=4, n_x=4, cells_x=4), "Device")
-        self.device.on_click = self.on_device  # type: ignore
-
-        self.host = Button(ui.grid(12, n_y=4, n_x=4, cells_x=4), "Host")
-        self.host.on_click = self.on_host  # type: ignore
-
-    def dispatch(self, event: int, x: int, y: int) -> None:
-        self.content.dispatch(event, x, y)
-        self.device.dispatch(event, x, y)
-        self.host.dispatch(event, x, y)
-
-    def on_device(self) -> None:
-        raise ui.Result(PassphraseSourceType.DEVICE)
-
-    def on_host(self) -> None:
-        raise ui.Result(PassphraseSourceType.HOST)
+            return tasks + (input_signal(),)
+        else:
+            return tasks

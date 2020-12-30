@@ -6,15 +6,16 @@ from trezor.utils import chunks
 
 from apps.common import paths, seed
 from apps.common.confirm import require_confirm
-from apps.tezos import CURVE, helpers
+from apps.common.keychain import with_slip44_keychain
+
+from . import CURVE, PATTERNS, SLIP44_ID, helpers
 
 
+@with_slip44_keychain(*PATTERNS, slip44_id=SLIP44_ID, curve=CURVE)
 async def get_public_key(ctx, msg, keychain):
-    await paths.validate_path(
-        ctx, helpers.validate_full_path, keychain, msg.address_n, CURVE
-    )
+    await paths.validate_path(ctx, keychain, msg.address_n)
 
-    node = keychain.derive(msg.address_n, CURVE)
+    node = keychain.derive(msg.address_n)
     pk = seed.remove_ed25519_prefix(node.public_key())
     pk_prefixed = helpers.base58_encode_check(pk, prefix=helpers.TEZOS_PUBLICKEY_PREFIX)
 
@@ -28,4 +29,4 @@ async def _show_tezos_pubkey(ctx, pubkey):
     lines = chunks(pubkey, 18)
     text = Text("Confirm public key", ui.ICON_RECEIVE, ui.GREEN)
     text.mono(*lines)
-    return await require_confirm(ctx, text, code=ButtonRequestType.PublicKey)
+    await require_confirm(ctx, text, code=ButtonRequestType.PublicKey)

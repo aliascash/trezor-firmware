@@ -6,7 +6,7 @@ from trezor.ui.confirm import CANCELLED, CONFIRMED
 from trezor.ui.swipe import SWIPE_DOWN, SWIPE_UP, SWIPE_VERTICAL, Swipe
 
 if __debug__:
-    from apps.debug import swipe_signal, notify_layout_change
+    from apps.debug import confirm_signal, swipe_signal, notify_layout_change
 
 if False:
     from typing import List, Tuple
@@ -35,7 +35,7 @@ def render_swipe_icon() -> None:
     if utils.DISABLE_ANIMATION:
         c = ui.GREY
     else:
-        PULSE_PERIOD = const(1200000)
+        PULSE_PERIOD = const(1_200_000)
         t = ui.pulse(PULSE_PERIOD)
         c = ui.blend(ui.GREY, ui.DARK_GREY, t)
 
@@ -51,10 +51,10 @@ class Paginated(ui.Layout):
     def __init__(
         self, pages: List[ui.Component], page: int = 0, one_by_one: bool = False
     ):
+        super().__init__()
         self.pages = pages
         self.page = page
         self.one_by_one = one_by_one
-        self.repaint = True
 
     def dispatch(self, event: int, x: int, y: int) -> None:
         pages = self.pages
@@ -98,7 +98,20 @@ class Paginated(ui.Layout):
         self.on_change()
 
     def create_tasks(self) -> Tuple[loop.Task, ...]:
-        return self.handle_input(), self.handle_rendering(), self.handle_paging()
+        tasks: Tuple[loop.Task, ...] = (
+            self.handle_input(),
+            self.handle_rendering(),
+            self.handle_paging(),
+        )
+
+        if __debug__:
+            # XXX This isn't strictly correct, as it allows *any* Paginated layout to be
+            # shut down by a DebugLink confirm, even if used outside of a confirm() call
+            # But we don't have any such usages in the codebase, and it doesn't actually
+            # make much sense to use a Paginated without a way to confirm it.
+            return tasks + (confirm_signal(),)
+        else:
+            return tasks
 
     def on_change(self) -> None:
         if self.one_by_one:
@@ -118,6 +131,7 @@ class PageWithButtons(ui.Component):
         index: int,
         count: int,
     ) -> None:
+        super().__init__()
         self.content = content
         self.paginated = paginated
         self.index = index
@@ -175,6 +189,7 @@ class PaginatedWithButtons(ui.Layout):
     def __init__(
         self, pages: List[ui.Component], page: int = 0, one_by_one: bool = False
     ) -> None:
+        super().__init__()
         self.pages = [
             PageWithButtons(p, self, i, len(pages)) for i, p in enumerate(pages)
         ]
@@ -212,3 +227,6 @@ class PaginatedWithButtons(ui.Layout):
 
         def read_content(self) -> List[str]:
             return self.pages[self.page].read_content()
+
+        def create_tasks(self) -> Tuple[loop.Task, ...]:
+            return super().create_tasks() + (confirm_signal(),)

@@ -8,13 +8,14 @@ from trezor.messages import BackupType
 if False:
     from trezor.messages.ResetDevice import EnumTypeBackupType
     from typing import Optional
+    from typing_extensions import Literal
 
 # Namespace:
 _NAMESPACE = common.APP_DEVICE
 
 # fmt: off
 # Keys:
-_DEVICE_ID                 = const(0x00)  # bytes
+DEVICE_ID                  = const(0x00)  # bytes
 _VERSION                   = const(0x01)  # int
 _MNEMONIC_SECRET           = const(0x02)  # bytes
 _LANGUAGE                  = const(0x03)  # str
@@ -24,7 +25,7 @@ _HOMESCREEN                = const(0x06)  # bytes
 _NEEDS_BACKUP              = const(0x07)  # bool (0x01 or empty)
 _FLAGS                     = const(0x08)  # int
 U2F_COUNTER                = const(0x09)  # int
-_PASSPHRASE_SOURCE         = const(0x0A)  # int
+_PASSPHRASE_ALWAYS_ON_DEVICE = const(0x0A)  # bool (0x01 or empty)
 _UNFINISHED_BACKUP         = const(0x0B)  # bool (0x01 or empty)
 _AUTOLOCK_DELAY_MS         = const(0x0C)  # int
 _NO_BACKUP                 = const(0x0D)  # bool (0x01 or empty)
@@ -33,11 +34,28 @@ _ROTATION                  = const(0x0F)  # int
 _SLIP39_IDENTIFIER         = const(0x10)  # bool
 _SLIP39_ITERATION_EXPONENT = const(0x11)  # int
 _SD_SALT_AUTH_KEY          = const(0x12)  # bytes
+INITIALIZED                = const(0x13)  # bool (0x01 or empty)
+_SAFETY_CHECK_LEVEL        = const(0x14)  # int
+_EXPERIMENTAL_FEATURES     = const(0x15)  # bool (0x01 or empty)
 
 _DEFAULT_BACKUP_TYPE       = BackupType.Bip39
+
+SAFETY_CHECK_LEVEL_STRICT  : Literal[0] = const(0)
+SAFETY_CHECK_LEVEL_PROMPT  : Literal[1] = const(1)
+_DEFAULT_SAFETY_CHECK_LEVEL = SAFETY_CHECK_LEVEL_STRICT
+if False:
+    StorageSafetyCheckLevel = Literal[0, 1]
 # fmt: on
 
 HOMESCREEN_MAXSIZE = 16384
+
+if __debug__:
+    AUTOLOCK_DELAY_MINIMUM = 10 * 1000  # 10 seconds
+else:
+    AUTOLOCK_DELAY_MINIMUM = 60 * 1000  # 1 minute
+AUTOLOCK_DELAY_DEFAULT = 10 * 60 * 1000  # 10 minutes
+# autolock intervals larger than AUTOLOCK_DELAY_MAXIMUM cause issues in the scheduler
+AUTOLOCK_DELAY_MAXIMUM = 0x2000_0000  # ~6 days
 
 # Length of SD salt auth tag.
 # Other SD-salt-related constants are in sd_salt.py
@@ -56,23 +74,33 @@ def set_version(version: bytes) -> None:
     common.set(_NAMESPACE, _VERSION, version)
 
 
+def is_initialized() -> bool:
+    return common.get_bool(_NAMESPACE, INITIALIZED, public=True)
+
+
 def _new_device_id() -> str:
     return hexlify(random.bytes(12)).decode().upper()
 
 
 def get_device_id() -> str:
-    dev_id = common.get(_NAMESPACE, _DEVICE_ID, True)  # public
+    dev_id = common.get(_NAMESPACE, DEVICE_ID, public=True)
     if not dev_id:
         dev_id = _new_device_id().encode()
-        common.set(_NAMESPACE, _DEVICE_ID, dev_id, True)  # public
+        common.set(_NAMESPACE, DEVICE_ID, dev_id, public=True)
     return dev_id.decode()
 
 
 def get_rotation() -> int:
-    rotation = common.get(_NAMESPACE, _ROTATION, True)  # public
+    rotation = common.get(_NAMESPACE, _ROTATION, public=True)
     if not rotation:
         return 0
     return int.from_bytes(rotation, "big")
+
+
+def set_rotation(value: int) -> None:
+    if value not in (0, 90, 180, 270):
+        raise ValueError  # unsupported display rotation
+    common.set(_NAMESPACE, _ROTATION, value.to_bytes(2, "big"), True)  # public
 
 
 def get_label() -> Optional[str]:
@@ -80,6 +108,10 @@ def get_label() -> Optional[str]:
     if label is None:
         return None
     return label.decode()
+
+
+def set_label(label: str) -> None:
+    common.set(_NAMESPACE, _LABEL, label.encode(), True)  # public
 
 
 def get_mnemonic_secret() -> Optional[bytes]:
@@ -101,12 +133,24 @@ def get_backup_type() -> EnumTypeBackupType:
     return backup_type  # type: ignore
 
 
-def has_passphrase() -> bool:
+def is_passphrase_enabled() -> bool:
     return common.get_bool(_NAMESPACE, _USE_PASSPHRASE)
 
 
+def set_passphrase_enabled(enable: bool) -> None:
+    common.set_bool(_NAMESPACE, _USE_PASSPHRASE, enable)
+    if not enable:
+        set_passphrase_always_on_device(False)
+
+
 def get_homescreen() -> Optional[bytes]:
-    return common.get(_NAMESPACE, _HOMESCREEN, True)  # public
+    return common.get(_NAMESPACE, _HOMESCREEN, public=True)
+
+
+def set_homescreen(homescreen: bytes) -> None:
+    if len(homescreen) > HOMESCREEN_MAXSIZE:
+        raise ValueError  # homescreen too large
+    common.set(_NAMESPACE, _HOMESCREEN, homescreen, public=True)
 
 
 def store_mnemonic_secret(
@@ -119,6 +163,7 @@ def store_mnemonic_secret(
     common.set(_NAMESPACE, _MNEMONIC_SECRET, secret)
     common.set_uint8(_NAMESPACE, _BACKUP_TYPE, backup_type)
     common.set_true_or_delete(_NAMESPACE, _NO_BACKUP, no_backup)
+    common.set_bool(_NAMESPACE, INITIALIZED, True, public=True)
     if not no_backup:
         common.set_true_or_delete(_NAMESPACE, _NEEDS_BACKUP, needs_backup)
 
@@ -143,45 +188,18 @@ def no_backup() -> bool:
     return common.get_bool(_NAMESPACE, _NO_BACKUP)
 
 
-def get_passphrase_source() -> int:
-    b = common.get(_NAMESPACE, _PASSPHRASE_SOURCE)
-    if b == b"\x01":
-        return 1
-    elif b == b"\x02":
-        return 2
-    else:
-        return 0
+def get_passphrase_always_on_device() -> bool:
+    """
+    This is backwards compatible with _PASSPHRASE_SOURCE:
+    - If ASK(0) => returns False, the check against b"\x01" in get_bool fails.
+    - If DEVICE(1) => returns True, the check against b"\x01" in get_bool succeeds.
+    - If HOST(2) => returns False, the check against b"\x01" in get_bool fails.
+    """
+    return common.get_bool(_NAMESPACE, _PASSPHRASE_ALWAYS_ON_DEVICE)
 
 
-def load_settings(
-    label: str = None,
-    use_passphrase: bool = None,
-    homescreen: bytes = None,
-    passphrase_source: int = None,
-    display_rotation: int = None,
-) -> None:
-    if label is not None:
-        common.set(_NAMESPACE, _LABEL, label.encode(), True)  # public
-    if use_passphrase is not None:
-        common.set_bool(_NAMESPACE, _USE_PASSPHRASE, use_passphrase)
-    if homescreen is not None:
-        if homescreen[:8] == b"TOIf\x90\x00\x90\x00":
-            if len(homescreen) <= HOMESCREEN_MAXSIZE:
-                common.set(_NAMESPACE, _HOMESCREEN, homescreen, True)  # public
-        else:
-            common.set(_NAMESPACE, _HOMESCREEN, b"", True)  # public
-    if passphrase_source is not None:
-        if passphrase_source in (0, 1, 2):
-            common.set(_NAMESPACE, _PASSPHRASE_SOURCE, bytes([passphrase_source]))
-    if display_rotation is not None:
-        if display_rotation not in (0, 90, 180, 270):
-            raise ValueError(
-                "Unsupported display rotation degrees: %d" % display_rotation
-            )
-        else:
-            common.set(
-                _NAMESPACE, _ROTATION, display_rotation.to_bytes(2, "big"), True
-            )  # public
+def set_passphrase_always_on_device(enable: bool) -> None:
+    common.set_bool(_NAMESPACE, _PASSPHRASE_ALWAYS_ON_DEVICE, enable)
 
 
 def get_flags() -> int:
@@ -198,22 +216,27 @@ def set_flags(flags: int) -> None:
         i = 0
     else:
         i = int.from_bytes(b, "big")
-    flags = (flags | i) & 0xFFFFFFFF
+    flags = (flags | i) & 0xFFFF_FFFF
     if flags != i:
         common.set(_NAMESPACE, _FLAGS, flags.to_bytes(4, "big"))
+
+
+def _normalize_autolock_delay(delay_ms: int) -> int:
+    delay_ms = max(delay_ms, AUTOLOCK_DELAY_MINIMUM)
+    delay_ms = min(delay_ms, AUTOLOCK_DELAY_MAXIMUM)
+    return delay_ms
 
 
 def get_autolock_delay_ms() -> int:
     b = common.get(_NAMESPACE, _AUTOLOCK_DELAY_MS)
     if b is None:
-        return 10 * 60 * 1000
+        return AUTOLOCK_DELAY_DEFAULT
     else:
-        return int.from_bytes(b, "big")
+        return _normalize_autolock_delay(int.from_bytes(b, "big"))
 
 
 def set_autolock_delay_ms(delay_ms: int) -> None:
-    if delay_ms < 60 * 1000:
-        delay_ms = 60 * 1000
+    delay_ms = _normalize_autolock_delay(delay_ms)
     common.set(_NAMESPACE, _AUTOLOCK_DELAY_MS, delay_ms.to_bytes(4, "big"))
 
 
@@ -275,3 +298,27 @@ def set_sd_salt_auth_key(auth_key: Optional[bytes]) -> None:
         return common.set(_NAMESPACE, _SD_SALT_AUTH_KEY, auth_key, public=True)
     else:
         return common.delete(_NAMESPACE, _SD_SALT_AUTH_KEY, public=True)
+
+
+# do not use this function directly, see apps.common.safety_checks instead
+def safety_check_level() -> StorageSafetyCheckLevel:
+    level = common.get_uint8(_NAMESPACE, _SAFETY_CHECK_LEVEL)
+    if level not in (SAFETY_CHECK_LEVEL_STRICT, SAFETY_CHECK_LEVEL_PROMPT):
+        return _DEFAULT_SAFETY_CHECK_LEVEL
+    else:
+        return level  # type: ignore
+
+
+# do not use this function directly, see apps.common.safety_checks instead
+def set_safety_check_level(level: StorageSafetyCheckLevel) -> None:
+    if level not in (SAFETY_CHECK_LEVEL_STRICT, SAFETY_CHECK_LEVEL_PROMPT):
+        raise ValueError
+    common.set_uint8(_NAMESPACE, _SAFETY_CHECK_LEVEL, level)
+
+
+def get_experimental_features() -> bool:
+    return common.get_bool(_NAMESPACE, _EXPERIMENTAL_FEATURES)
+
+
+def set_experimental_features(enabled: bool) -> None:
+    common.set_true_or_delete(_NAMESPACE, _EXPERIMENTAL_FEATURES, enabled)

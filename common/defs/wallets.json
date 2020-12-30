@@ -28,9 +28,6 @@
         "Electrum-BTX": "https://github.com/LIMXTEC/electrum-btx",
         "Magnum": "https://magnumwallet.co"
     },
-    "bitcoin:CPC": {
-        "Capricoin Mobile Wallet": "https://wallet.capricoin.org"
-    },
     "bitcoin:CPU": {
         "Electrum-CPU": "https://cpuchain.org/download-page.html"
     },
@@ -93,10 +90,6 @@
     "bitcoin:PART": {
         "Particl Core": "https://github.com/particl/particl-core/releases"
     },
-    "bitcoin:PIVX": {
-        "SPMT": "https://github.com/PIVX-Project/PIVX-SPMT/",
-        "Zephyr": "https://github.com/mrcarlanthony/Zephyr-wallet"
-    },
     "bitcoin:POLIS": {
         "PolisPay": "https://polispay.com"
     },
@@ -137,6 +130,9 @@
     },
     "bitcoin:XSN": {
         "Stakenet": "https://xsnexplorer.io/trezor"
+    },
+    "bitcoin:XVG": {
+      "Electrum": "https://github.com/vergecurrency/electrum/releases"
     },
     "bitcoin:XZC": {
         "Electrum-XZC": "https://github.com/zcoinofficial/electrum-xzc",

@@ -6,6 +6,7 @@ if False:
 
 class Popup(ui.Layout):
     def __init__(self, content: ui.Component, time_ms: int = 0) -> None:
+        super().__init__()
         self.content = content
         if utils.DISABLE_ANIMATION:
             self.time_ms = 0
@@ -19,5 +20,5 @@ class Popup(ui.Layout):
         return self.handle_input(), self.handle_rendering(), self.handle_timeout()
 
     def handle_timeout(self) -> loop.Task:  # type: ignore
-        yield loop.sleep(self.time_ms * 1000)
+        yield loop.sleep(self.time_ms)
         raise ui.Result(None)

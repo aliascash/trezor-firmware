@@ -2,6 +2,7 @@ import storage.device
 from trezor import ui, utils, workflow
 from trezor.crypto import bip39, slip39
 from trezor.messages import BackupType
+from trezor.ui.text import Text
 
 if False:
     from typing import Optional, Tuple
@@ -56,14 +57,10 @@ def get_seed(passphrase: str = "", progress_bar: bool = True) -> bytes:
 
 def _start_progress() -> None:
     # Because we are drawing to the screen manually, without a layout, we
-    # should make sure that no other layout is running.  At this point, only
-    # the homescreen should be on, so shut it down.
-    workflow.kill_default()
-    ui.backlight_fade(ui.BACKLIGHT_DIM)
-    ui.display.clear()
-    ui.header("Please wait")
-    ui.refresh()
-    ui.backlight_fade(ui.BACKLIGHT_NORMAL)
+    # should make sure that no other layout is running.
+    workflow.close_others()
+    t = Text("Please wait", ui.ICON_CONFIG)
+    ui.draw_simple(t)
 
 
 def _render_progress(progress: int, total: int) -> None:

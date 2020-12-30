@@ -1,9 +1,10 @@
-from trezor import ui, utils
+from trezor import strings, ui, utils
 from trezor.messages import ButtonRequestType
 from trezor.ui.text import Text
 
 from apps.common.confirm import require_confirm, require_hold_to_confirm
-from apps.stellar import consts
+
+from . import consts
 
 
 async def require_confirm_init(
@@ -77,7 +78,7 @@ def format_amount(amount: int, ticker=True) -> str:
     t = ""
     if ticker:
         t = " XLM"
-    return utils.format_amount(amount, consts.AMOUNT_DECIMALS) + t
+    return strings.format_amount(amount, consts.AMOUNT_DECIMALS) + t
 
 
 def split(text):

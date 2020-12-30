@@ -4,22 +4,27 @@ from trezor import log, wire
 from trezor.messages.CardanoPublicKey import CardanoPublicKey
 from trezor.messages.HDNodeType import HDNodeType
 
-from apps.cardano import CURVE, seed
-from apps.cardano.address import derive_address_and_node
 from apps.common import layout, paths
 from apps.common.seed import remove_ed25519_prefix
 
+from . import seed
+from .helpers.paths import SCHEMA_PUBKEY
 
-async def get_public_key(ctx, msg):
-    keychain = await seed.get_keychain(ctx)
+if False:
+    from typing import List
+    from trezor.messages import CardanoGetPublicKey
 
+
+@seed.with_keychain
+async def get_public_key(
+    ctx: wire.Context, msg: CardanoGetPublicKey, keychain: seed.Keychain
+):
     await paths.validate_path(
         ctx,
-        paths.validate_path_for_get_public_key,
         keychain,
         msg.address_n,
-        CURVE,
-        slip44_id=1815,
+        # path must match the PUBKEY schema
+        SCHEMA_PUBKEY.match(msg.address_n),
     )
 
     try:
@@ -34,8 +39,10 @@ async def get_public_key(ctx, msg):
     return key
 
 
-def _get_public_key(keychain, derivation_path: list):
-    _, node = derive_address_and_node(keychain, derivation_path)
+def _get_public_key(
+    keychain: seed.Keychain, derivation_path: List[int]
+) -> CardanoPublicKey:
+    node = keychain.derive(derivation_path)
 
     public_key = hexlify(remove_ed25519_prefix(node.public_key())).decode()
     chain_code = hexlify(node.chain_code()).decode()

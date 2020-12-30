@@ -57,6 +57,9 @@
 // Norcow storage key of the storage upgrade flag.
 #define STORAGE_UPGRADED_KEY ((APP_STORAGE << 8) | 0x07)
 
+// The PIN value corresponding to an invalid PIN.
+#define PIN_INVALID 0
+
 // The PIN value corresponding to an empty PIN.
 #define PIN_EMPTY 1
 
@@ -943,16 +946,11 @@ static secbool decrypt_dek(const uint8_t *kek, const uint8_t *keiv) {
 }
 
 static secbool unlock(uint32_t pin, const uint8_t *ext_salt) {
-  if (sectrue != initialized) {
+  if (sectrue != initialized || pin == PIN_INVALID) {
     return secfalse;
   }
 
-  // Check whether the user entered the wipe code.
-  if (sectrue != is_not_wipe_code(pin)) {
-    storage_wipe();
-    error_shutdown("You have entered the", "wipe code. All private",
-                   "data has been erased.", NULL);
-  }
+  storage_ensure_not_wipe_code(pin);
 
   // Get the pin failure counter
   uint32_t ctr = 0;
@@ -1104,6 +1102,11 @@ static secbool storage_get_encrypted(const uint16_t key, void *val_dest,
 
   memzero(tag_computed, sizeof(tag_computed));
   return sectrue;
+}
+
+secbool storage_has(const uint16_t key) {
+  uint16_t len = 0;
+  return storage_get(key, NULL, 0, &len);
 }
 
 /*
@@ -1317,7 +1320,8 @@ uint32_t storage_get_pin_rem(void) {
 secbool storage_change_pin(uint32_t oldpin, uint32_t newpin,
                            const uint8_t *old_ext_salt,
                            const uint8_t *new_ext_salt) {
-  if (sectrue != initialized) {
+  if (sectrue != initialized || oldpin == PIN_INVALID ||
+      newpin == PIN_INVALID) {
     return secfalse;
   }
 
@@ -1335,6 +1339,14 @@ secbool storage_change_pin(uint32_t oldpin, uint32_t newpin,
   return ret;
 }
 
+void storage_ensure_not_wipe_code(uint32_t pin) {
+  if (sectrue != is_not_wipe_code(pin)) {
+    storage_wipe();
+    error_shutdown("You have entered the", "wipe code. All private",
+                   "data has been erased.", NULL);
+  }
+}
+
 secbool storage_has_wipe_code(void) {
   if (sectrue != initialized || sectrue != unlocked) {
     return secfalse;
@@ -1345,7 +1357,8 @@ secbool storage_has_wipe_code(void) {
 
 secbool storage_change_wipe_code(uint32_t pin, const uint8_t *ext_salt,
                                  uint32_t wipe_code) {
-  if (sectrue != initialized || (pin != PIN_EMPTY && pin == wipe_code)) {
+  if (sectrue != initialized || (pin != PIN_EMPTY && pin == wipe_code) ||
+      pin == PIN_INVALID || wipe_code == PIN_INVALID) {
     memzero(&pin, sizeof(pin));
     memzero(&wipe_code, sizeof(wipe_code));
     return secfalse;

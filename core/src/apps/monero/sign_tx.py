@@ -3,9 +3,11 @@ import gc
 from trezor import log, utils, wire
 from trezor.messages import MessageType
 
+from apps.common.keychain import auto_keychain
 from apps.monero.signing.state import State
 
 
+@auto_keychain(__name__)
 async def sign_tx(ctx, received_msg, keychain):
     state = State(ctx)
     mods = utils.unimport_begin()
@@ -51,6 +53,7 @@ async def sign_tx_dispatch(state, msg, keychain):
             (
                 MessageType.MoneroTransactionSetInputRequest,
                 MessageType.MoneroTransactionInputsPermutationRequest,
+                MessageType.MoneroTransactionInputViniRequest,
             ),
         )
 
@@ -67,7 +70,7 @@ async def sign_tx_dispatch(state, msg, keychain):
 
         return (
             await step_04_input_vini.input_vini(
-                state, msg.src_entr, msg.vini, msg.vini_hmac
+                state, msg.src_entr, msg.vini, msg.vini_hmac, msg.orig_idx
             ),
             (
                 MessageType.MoneroTransactionInputViniRequest,
@@ -121,6 +124,7 @@ async def sign_tx_dispatch(state, msg, keychain):
                 msg.pseudo_out_hmac,
                 msg.pseudo_out_alpha,
                 msg.spend_key,
+                msg.orig_idx,
             ),
             (
                 MessageType.MoneroTransactionSignInputRequest,

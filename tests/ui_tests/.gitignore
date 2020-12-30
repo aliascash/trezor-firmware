@@ -1,4 +1,4 @@
 *.png
 *.html
 *.zip
-reports/
+fixtures.suggestion.json

@@ -4,11 +4,14 @@ import os
 
 BITCOIN_ONLY = ARGUMENTS.get('BITCOIN_ONLY', '0')
 EVERYTHING = BITCOIN_ONLY != '1'
+TREZOR_MODEL = ARGUMENTS.get('TREZOR_MODEL', 'T')
 
 CCFLAGS_MOD = ''
 CPPPATH_MOD = []
 CPPDEFINES_MOD = []
-SOURCE_MOD = []
+SOURCE_MOD = [
+    'vendor/micropython/extmod/vfs_posix_file.c',
+]
 if EVERYTHING:
     SOURCE_MOD_SECP256K1_ZKP = []
 
@@ -34,6 +37,7 @@ CPPPATH_MOD += [
 CPPDEFINES_MOD += [
     'AES_128',
     'AES_192',
+    ('USE_BIP32_CACHE', '0'),
     ('USE_KECCAK', '1'),
     ('USE_ETHEREUM', '1' if EVERYTHING else '0'),
     ('USE_MONERO', '1' if EVERYTHING else '0'),
@@ -63,6 +67,7 @@ SOURCE_MOD += [
     'vendor/trezor-crypto/chacha20poly1305/chacha_merged.c',
     'vendor/trezor-crypto/chacha20poly1305/poly1305-donna.c',
     'vendor/trezor-crypto/chacha20poly1305/rfc7539.c',
+    'vendor/trezor-crypto/chacha_drbg.c',
     'vendor/trezor-crypto/ed25519-donna/curve25519-donna-32bit.c',
     'vendor/trezor-crypto/ed25519-donna/curve25519-donna-helpers.c',
     'vendor/trezor-crypto/ed25519-donna/curve25519-donna-scalarmult-base.c',
@@ -131,22 +136,28 @@ SOURCE_MOD += [
 ]
 
 # modtrezorui
+CPPPATH_MOD += [
+        'vendor/micropython/extmod/uzlib',
+]
 CPPDEFINES_MOD += [
     'TREZOR_FONT_BOLD_ENABLE',
     'TREZOR_FONT_NORMAL_ENABLE',
     'TREZOR_FONT_MONO_ENABLE',
-    'TREZOR_FONT_MONO_BOLD_ENABLE',
 ]
 SOURCE_MOD += [
     'embed/extmod/modtrezorui/display.c',
     'embed/extmod/modtrezorui/font_bitmap.c',
     'embed/extmod/modtrezorui/font_roboto_bold_20.c',
     'embed/extmod/modtrezorui/font_roboto_regular_20.c',
-    'embed/extmod/modtrezorui/font_robotomono_bold_20.c',
     'embed/extmod/modtrezorui/font_robotomono_regular_20.c',
-    'embed/extmod/modtrezorui/inflate.c',
+    'embed/extmod/modtrezorui/font_pixeloperator_bold_8.c',
+    'embed/extmod/modtrezorui/font_pixeloperator_regular_8.c',
+    'embed/extmod/modtrezorui/font_pixeloperatormono_regular_8.c',
     'embed/extmod/modtrezorui/modtrezorui.c',
     'embed/extmod/modtrezorui/qr-code-generator/qrcodegen.c',
+    'vendor/micropython/extmod/uzlib/adler32.c',
+    'vendor/micropython/extmod/uzlib/crc32.c',
+    'vendor/micropython/extmod/uzlib/tinflate.c',
 ]
 if FROZEN:
     CPPDEFINES_MOD += ['TREZOR_EMULATOR_FROZEN']
@@ -295,8 +306,8 @@ SOURCE_UNIX = [
     'embed/unix/sdcard.c',
     'embed/unix/touch.c',
     'embed/unix/usb.c',
+    'vendor/micropython/lib/utils/gchelper_generic.c',
     'vendor/micropython/ports/unix/alloc.c',
-    'vendor/micropython/ports/unix/file.c',
     'vendor/micropython/ports/unix/gccollect.c',
     'vendor/micropython/ports/unix/input.c',
     'vendor/micropython/ports/unix/unix_mphal.c',
@@ -337,8 +348,13 @@ if ARGUMENTS.get('TREZOR_EMULATOR_DEBUGGABLE', 0):
         COPT=' -O0 -ggdb',
         STRIP='true', )
 
+if ARGUMENTS.get('TREZOR_MEMPERF', '0') == '1':
+    CPPDEFINES_MOD += [
+        ('MICROPY_TREZOR_MEMPERF', '\(1\)')
+    ]
+
 env.Replace(
-    TREZOR_MODEL=env.get('ENV').get('TREZOR_MODEL', 'T'), )
+    TREZOR_MODEL=TREZOR_MODEL, )
 
 env.Replace(
     CCFLAGS='$COPT '
@@ -358,7 +374,6 @@ env.Replace(
     CPPDEFINES=[
         'TREZOR_EMULATOR',
         ('TREZOR_MODEL', '$TREZOR_MODEL'),
-        'MICROPY_USE_READLINE',
         ('MP_CONFIGFILE', '\\"embed/unix/mpconfigport.h\\"'),
     ] + CPPDEFINES_MOD,
     ASPPFLAGS='$CFLAGS $CCFLAGS', )
@@ -372,6 +387,7 @@ env.Replace(
     PYTHON='python',
     MAKEQSTRDATA='$PYTHON vendor/micropython/py/makeqstrdata.py',
     MAKEVERSIONHDR='$PYTHON vendor/micropython/py/makeversionhdr.py',
+    MAKEMODULEDEFS='$PYTHON vendor/micropython/py/makemoduledefs.py',
     MPY_TOOL='$PYTHON vendor/micropython/tools/mpy-tool.py',
     MPY_CROSS='vendor/micropython/mpy-cross/mpy-cross -O' + PYOPT
 )
@@ -418,10 +434,7 @@ env.Ignore(hdr_moduledefs, qstr_generated)
 #
 
 if FROZEN:
-    if env.get('TREZOR_MODEL') == '1':
-        SOURCE_PY_DIR = 'src1/'
-    else:
-        SOURCE_PY_DIR = 'src/'
+    SOURCE_PY_DIR = 'src/'
 
     SOURCE_PY = Glob(SOURCE_PY_DIR + '*.py')
     SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'trezor/*.py'))
@@ -448,17 +461,20 @@ if FROZEN:
         ])
     )
 
+    SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/*.py'))
     SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/common/*.py'))
     SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/common/*/*.py'))
     SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/debug/*.py'))
     SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/homescreen/*.py'))
     SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/management/*.py'))
     SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/management/*/*.py'))
-    SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/wallet/*.py'))
-    SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/wallet/*/*.py',
+    SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/misc/*.py'))
+    SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/bitcoin/*.py'))
+    SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/bitcoin/*/*.py',
         exclude=[
-            SOURCE_PY_DIR + 'apps/wallet/sign_tx/decred.py',
-            SOURCE_PY_DIR + 'apps/wallet/sign_tx/zcash.py',
+            SOURCE_PY_DIR + 'apps/bitcoin/sign_tx/decred.py',
+            SOURCE_PY_DIR + 'apps/bitcoin/sign_tx/bitcoinlike.py',
+            SOURCE_PY_DIR + 'apps/bitcoin/sign_tx/zcash.py',
         ])
     )
 
@@ -502,8 +518,9 @@ if FROZEN:
 
         SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/webauthn/*.py'))
 
-        SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/wallet/sign_tx/decred.py'))
-        SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/wallet/sign_tx/zcash.py'))
+        SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/bitcoin/sign_tx/decred.py'))
+        SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/bitcoin/sign_tx/bitcoinlike.py'))
+        SOURCE_PY.extend(Glob(SOURCE_PY_DIR + 'apps/bitcoin/sign_tx/zcash.py'))
 
     source_mpy = env.FrozenModule(source=SOURCE_PY, source_dir=SOURCE_PY_DIR, bitcoin_only=BITCOIN_ONLY)
 
@@ -551,6 +568,6 @@ if EVERYTHING:
     env.Depends(obj_program, secp256k1_zkp_ecmult_static_context)
 
 program = env.Command(
-    target='micropython',
+    target='trezor-emu-core',
     source=obj_program,
     action='$CC -o $TARGET $SOURCES $_LIBDIRFLAGS $_LIBFLAGS $LINKFLAGS', )
